@@ -1,6 +1,6 @@
 import ast
 import pathlib
-from setuptools import setuptools
+from setuptools import setup
 
 def readme():
     with open("README.rst") as f:
@@ -21,25 +21,10 @@ setup(
     keywords="Options Valuation",
     url="",
     author="Kenny Li",
-    author="Kenseng1596357@gmail.com",
+    author_email="Kenseng1596357@gmail.com",
     license="BSD3",
     package=["oval"],
     entry_points={},
     include_package_data=True,
     zip_safe=False,
-)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-)
+)  
