@@ -1,4 +1,4 @@
 flake8>=3.8.4
 black>=20.8b1
 ipykernel==5.3.4
-
+yfinance==0.1.55
