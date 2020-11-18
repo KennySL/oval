@@ -2,9 +2,11 @@ import ast
 import pathlib
 from setuptools import setup
 
+
 def readme():
     with open("README.rst") as f:
         return f.read()
+
 
 def get_version():
     with open(r"oval/__init__.py") as f:
@@ -12,6 +14,7 @@ def get_version():
             if line.startswith("__version__"):
                 version = line.split("=")[-1].strip()
     return ast.literal_eval(version)
+
 
 setup(
     name="Oval",
@@ -27,4 +30,4 @@ setup(
     entry_points={},
     include_package_data=True,
     zip_safe=False,
-)  
+)
