@@ -5,3 +5,4 @@ yfinance==0.1.55
 fredapi==0.4.2
 plotly==4.12.0
 seaborn==0.11.0
+nbformat==4.4.0
