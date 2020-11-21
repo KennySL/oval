@@ -21,6 +21,7 @@ portfolio Listing
 """
 
 import pandas as pd
+import plotly.express as px
 
 
 class Position:
@@ -111,6 +112,24 @@ class Portfolio:
 
         df = pd.DataFrame(_summary)
         df.set_index("ticker", inplace=True)
-        df.sort_values("asset_class", inplace=True)
+
+        total_value = df["value"].sum()
+
+        # Add weight variable
+        df["weight"] = df["value"] / total_value
+
+        # round to two decimal place
+        df = df.round(2)
+
+        # finally sort by asset class and weight
+        df.sort_values(["asset_class", "weight"], inplace=True, ascending=False)
 
         return df
+
+    def plot(self, topic="Weights"):
+
+        df = self.summary
+
+        if topic == "Weights":
+            fig = px.pie(df, values="weight", names=df.index, title="Weights")
+            fig.show()
