@@ -56,7 +56,7 @@ class Stock(Asset):
         self._yfticker = yf.Ticker(ticker)
         self._history = self.get_history(history_period, financials)
         self._start_date = self.history.index[0]
-        self._end_date = self.history.index[-1]
+        self._val_date = self.history.index[-1]
         self._price = self.history["Close"][-1]
 
     @property
@@ -84,8 +84,8 @@ class Stock(Asset):
         return self._start_date
 
     @property
-    def end_date(self):
-        return self._end_date
+    def val_date(self):
+        return self._val_date
 
     def get_history(self, period="max", financials=False):
         """
@@ -214,7 +214,7 @@ class Stock(Asset):
             merge_df = self._add_markers(merge_df)
 
             if freq == "y":
-                
+
                 merge_df.columns = [
                     f"{col}_{rsuffix}_{freq}" for col in merge_df.columns
                 ]
@@ -225,7 +225,7 @@ class Stock(Asset):
                     right_on=f"year_marker_{rsuffix}_{freq}",
                 )
             elif freq == "q":
-                
+
                 merge_df.columns = [
                     f"{col}_{rsuffix}_{freq}" for col in merge_df.columns
                 ]
