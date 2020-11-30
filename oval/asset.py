@@ -56,7 +56,7 @@ class Stock(Asset):
         self._yfticker = yf.Ticker(ticker)
         self._history = self.get_history(history_period, financials)
         self._start_date = self.history.index[0]
-        self._end_date = self.history.index[1]
+        self._end_date = self.history.index[-1]
         self._price = self.history["Close"][-1]
 
     @property
@@ -169,7 +169,7 @@ class Stock(Asset):
             if year_changed:
                 year_marker = year
             else:
-                year_marker = ""
+                year_marker = "N/A"
             return year_marker
 
         df["year_marker"] = np.vectorize(_set_year_marker)(
@@ -177,16 +177,21 @@ class Stock(Asset):
         )
 
         def _set_quarter_marker(quarter, year, quarter_changed):
+
             if quarter_changed:
                 quarter_marker = f"{quarter}Q{year}"
             else:
-                quarter_marker = ""
+                quarter_marker = "N/A"
 
             return quarter_marker
 
         df["quarter_marker"] = np.vectorize(_set_quarter_marker)(
             df["quarter"], df["year"], df["quarter_changed"]
         )
+
+        # change markers of the last row
+        df.loc[df.index[-1], "year_marker"] = "latest_year"
+        df.loc[df.index[-1], "quarter_marker"] = "latest_quarter"
 
         return df
 
@@ -206,8 +211,10 @@ class Stock(Asset):
 
         def _join(main_df, merge_df, rsuffix, freq):
 
+            merge_df = self._add_markers(merge_df)
+
             if freq == "y":
-                merge_df["year"] = merge_df.index.year.astype(str)
+                
                 merge_df.columns = [
                     f"{col}_{rsuffix}_{freq}" for col in merge_df.columns
                 ]
@@ -215,10 +222,10 @@ class Stock(Asset):
                     merge_df,
                     how="left",
                     left_on="year_marker",
-                    right_on=f"year_{rsuffix}_{freq}",
+                    right_on=f"year_marker_{rsuffix}_{freq}",
                 )
             elif freq == "q":
-                merge_df["quarter"] = merge_df.index.quarter.astype(str)
+                
                 merge_df.columns = [
                     f"{col}_{rsuffix}_{freq}" for col in merge_df.columns
                 ]
@@ -226,7 +233,7 @@ class Stock(Asset):
                     merge_df,
                     how="left",
                     left_on="quarter_marker",
-                    right_on=f"quarter_{rsuffix}_{freq}",
+                    right_on=f"quarter_marker_{rsuffix}_{freq}",
                 )
 
             return main_df
