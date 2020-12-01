@@ -167,7 +167,7 @@ class Stock(Asset):
 
         def _set_year_marker(year, year_changed):
             if year_changed:
-                year_marker = year
+                year_marker = str(year)
             else:
                 year_marker = "N/A"
             return year_marker
@@ -190,8 +190,8 @@ class Stock(Asset):
         )
 
         # change markers of the last row
-        df.loc[df.index[-1], "year_marker"] = "latest_year"
-        df.loc[df.index[-1], "quarter_marker"] = "latest_quarter"
+        # df.loc[df.index[-1], "year_marker"] = "latest_year"
+        # df.loc[df.index[-1], "quarter_marker"] = "latest_quarter"
 
         return df
 
@@ -210,6 +210,8 @@ class Stock(Asset):
         cf = self.yfticker.cashflow.T
 
         def _join(main_df, merge_df, rsuffix, freq):
+
+            merge_df = merge_df.sort_index()
 
             merge_df = self._add_markers(merge_df)
 
