@@ -64,10 +64,10 @@ class Position:
 class Portfolio:
     def __init__(self, positions):
         self._positions = {pos.asset.ticker: pos for pos in positions}
-        self._summary = self._summarize()
-        self._value = self.summary["value"].sum()
         self._time_idx = self.get_longest_time_index()
         self._val_date = self.time_idx[-1]
+        self._summary = self._summarize()
+        self._value = self.summary["value"].sum()
 
     @property
     def positions(self):
@@ -106,10 +106,10 @@ class Portfolio:
         # reflected on portfolio level.
         _new_positions = {pos.asset.ticker: pos for pos in new_positions}
         self._positions.update(_new_positions)
-        self._summary = self._summarize()
-        self._value = self.summary["value"].sum()
         self._time_idx = self.get_longest_time_index()
         self._val_date = self.time_idx[-1]
+        self._summary = self._summarize()
+        self._value = self.summary["value"].sum()
 
     def _summarize(self):
         """Internal function that produce a summary of the portfolio."""
@@ -129,7 +129,8 @@ class Portfolio:
             _summary["value"].append(pos.value)
 
         df = pd.DataFrame(_summary)
-        df.set_index("ticker", inplace=True)
+        df["val_date"] = self.val_date
+        df.set_index(["val_date", "ticker"], inplace=True)
 
         total_value = df["value"].sum()
 
