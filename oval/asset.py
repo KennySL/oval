@@ -144,6 +144,31 @@ class Stock(Asset):
                 df[cols].ewm(span=window, **kwargs).mean(), rsuffix=f"_ema_{window}"
             )
 
+    def get_option_data(self):
+        """Get option data in a single dataframe."""
+        maturities = self.yfticker.options
+        val_date = self.val_date
+
+        df = pd.DataFrame()
+
+        for mat in maturities:
+            opt = self.yfticker.option_chain(mat)
+            call = opt[0]
+            put = opt[1]
+
+            straddle_view = call.merge(put, on="strike", suffixes=("_c", "_p"))
+
+            mat_date = pd.to_datetime(mat, format="%Y-%m-%d")
+            straddle_view["val_date"] = val_date
+            straddle_view["mat_date"] = mat_date
+            straddle_view["days_to_mat"] = (mat_date - val_date).days
+
+            straddle_view.set_index(["val_date", "mat_date", "strike"], inplace=True)
+
+            df = df.append(straddle_view)
+
+        return df
+
     def _add_markers(self, history_df):
         """add marker columns to history df, the markers can then be used to
         look up key period rows for quarterly and annual data.
