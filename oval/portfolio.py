@@ -19,10 +19,16 @@ Commandline Usage
 portfolio Listing
 =================
 """
-
+from pathlib import Path as _Path
 import pandas as pd
 import plotly.express as px
 from copy import deepcopy as _deepcopy
+from pyarrow import feather
+
+try:
+    from asset import Stock, Cash
+except (ImportError, ModuleNotFoundError):
+    from oval.asset import Stock, Cash
 
 
 class Position:
@@ -62,8 +68,16 @@ class Position:
 
 
 class Portfolio:
+    """Portfolio consists of multiple Position objects.
+
+    Parameters:
+    -----------
+    positions : list of Position objects or file path string
+
+    """
+
     def __init__(self, positions):
-        self._positions = {pos.asset.ticker: pos for pos in positions}
+        self._positions = self._load_positions(positions)
         self._time_idx = self.get_longest_time_index()
         self._val_date = self.time_idx[-1]
         self._summary = self._summarize()
@@ -88,6 +102,40 @@ class Portfolio:
     @property
     def val_date(self):
         return self._val_date
+
+    def _load_positions(self, positions):
+        """
+        Parameters
+        ----------
+        positions : list of Position objects or file path string
+
+        Returns
+        -------
+        pos_dict : dictionary of Position objects
+        """
+
+        if isinstance(positions, list):
+            pos_dict = {pos.asset.ticker: pos for pos in positions}
+
+        elif isinstance(positions, _Path) or isinstance(positions, str):
+            summary = feather.read_feather(positions)
+
+            ticker = summary["ticker"]
+            asset_class = summary["asset_class"]
+            shares = summary["shares"]
+
+            pos_dict = {}
+
+            for i in zip(ticker, asset_class, shares):
+
+                if i[1] == "Stock":
+                    pos = Position(Stock(i[0], financials=True), i[2])
+                elif i[1] == "Cash":
+                    pos = Position(Cash(), i[2])
+
+                pos_dict[i[0]] = pos
+
+        return pos_dict
 
     def update(self, change_in_positions):
         """update positions in the portfolio. In addition, reflect
@@ -147,7 +195,7 @@ class Portfolio:
 
     def plot(self, topic="Weights"):
 
-        df = self.summary
+        df = self.summary.reset_index().set_index("ticker")
 
         if topic == "Weights":
             fig = px.pie(df, values="weight", names=df.index, title="Weights")

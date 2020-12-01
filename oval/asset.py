@@ -102,7 +102,12 @@ class Stock(Asset):
 
         # join financials data if True
         if financials:
-            df = self.get_financials(df)
+            try:
+                df = self.get_financials(df)
+
+            # for stock type that has no financials, skip
+            except AttributeError:
+                pass
 
         return df
 
