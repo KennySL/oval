@@ -119,6 +119,8 @@ class Portfolio:
 
         elif isinstance(positions, _Path) or isinstance(positions, str):
             summary = feather.read_feather(positions)
+            last_val_date = summary["val_date"].iloc[-1]
+            summary = summary.loc[summary["val_date"] == last_val_date]
 
             ticker = summary["ticker"]
             asset_class = summary["asset_class"]
