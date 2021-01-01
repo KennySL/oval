@@ -137,23 +137,27 @@ class Portfolio:
 
         return pos_dict
 
-    def update(self, change_in_positions):
+    def update_position(self, ticker, change):
         """update positions in the portfolio. In addition, reflect
         summary and value accordingly.
 
         Parameters
         ==========
-        new_positions : list of Position objects
+        ticker : str
+            ticker
+
+        change : int
+            change in shares
 
         Returns
         =======
-
+        update the position and reflect summary and value on portfolio level
+        accordingly.
         """
+        # update positions
+        self.positions[ticker].update_shares(change)
 
-        # <TODO> need fix, the change in position is not
-        # reflected on portfolio level.
-        _new_positions = {pos.asset.ticker: pos for pos in new_positions}
-        self._positions.update(_new_positions)
+        # update portfolio
         self._time_idx = self.get_longest_time_index()
         self._val_date = self.time_idx[-1]
         self._summary = self._summarize()
@@ -186,7 +190,7 @@ class Portfolio:
         df["weight"] = df["value"] / total_value
 
         # round to two decimal place
-        df = df.round(2)
+        df = df.round({"shares": 2, "price": 2, "value": 2})
 
         # finally sort by asset class and weight
         df.sort_values(["asset_class", "weight"], inplace=True, ascending=False)
@@ -233,3 +237,106 @@ class Portfolio:
         earliest_start_date_key = keys[start_dates.index(earliest_start_date)]
 
         return self.positions[earliest_start_date_key].asset.history.index
+
+    @staticmethod
+    def read_data(fpath):
+        df = feather.read_feather(fpath)
+
+        # set index
+        if fpath.stem.find("Stock") != -1:
+            df.set_index("Date", inplace=True)
+        elif fpath.stem.find("Option") != -1:
+            df.set_index(["val_date", "mat_date", "strike"], inplace=True)
+        elif fpath.stem.find("Summary") != -1:
+            df.set_index(["val_date", "ticker"], inplace=True)
+
+        return df
+
+    @staticmethod
+    def _update_data(last_updated_fpath, new_data, _replace=False):
+        """Update data files by appending new data to existing data files.
+
+        Parameters
+        ==========
+        last_updated_fpath : str or pathlib.Path
+
+        new_data : df
+
+        _replace : boolean
+            Defaults to False, if true existing files will be overwritten
+
+        Returns
+        =======
+        existing files will be overwritten
+        """
+        last_updated = feather.read_feather(last_updated_fpath)
+
+        if last_updated_fpath.stem[0:5] == "Stock":
+
+            last_updated_date = last_updated["Date"].iloc[-1]
+            new_data_to_append = new_data.loc[last_updated_date:]
+            updated = last_updated.iloc[:-1].append(new_data_to_append.reset_index())
+        else:
+            updated = last_updated.append(new_data.reset_index())
+
+        updated.reset_index(drop=True, inplace=True)
+
+        if _replace:
+            updated.to_feather(last_updated_fpath)
+        else:
+            updated.to_feather(f"{last_updated_fpath}_new")
+
+        return updated
+
+    def write(self, base_path, replace=False):
+        """Write position data including stock and options and summary data.
+
+        Parameters
+        ==========
+        base_path : pathlib.Path
+            base directory where the files should be stored.
+
+        replace : boolean
+            Defaults to False, rewrite the existing files if true
+
+        Returns
+        =======
+        data files updated with new portfolio data.
+        """
+        # update stock and option data
+        for pos in self.positions.values():
+            if pos.asset.asset_class == "Stock":
+
+                # update stock data
+                fname = f"Stock_{pos.asset.ticker}"
+                fpath = base_path.joinpath(fname)
+
+                # if exist, append
+                if fpath.is_file():
+                    self._update_data(fpath, pos.asset.history, replace)
+                else:
+                    pos.asset.history.reset_index().to_feather(fpath)
+
+                # update option data
+                fname = f"Option_{pos.asset.ticker}"
+                fpath = base_path.joinpath(fname)
+
+                try:
+                    option_data = pos.asset.get_option_data()
+
+                    # if exist, append
+                    if fpath.is_file():
+                        self._update_data(fpath, option_data, replace)
+                    else:
+                        option_data.reset_index().to_feather(fpath)
+
+                except IndexError:
+                    print(f"asset {pos.asset.ticker} has no option data")
+
+        # update summary
+        fpath = base_path.joinpath("Summary")
+
+        if fpath.is_file():
+            self._update_data(fpath, self.summary, replace)
+        else:
+            self.summary.reset_index().to_feather(fpath)
