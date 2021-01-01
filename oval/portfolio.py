@@ -240,6 +240,16 @@ class Portfolio:
 
     @staticmethod
     def read_data(fpath):
+        """Read data files and set index columns.
+
+        Parameters
+        ==========
+        fpath : str or pathlib.Path
+
+        Returns
+        =======
+        df : dataframe
+        """
         df = feather.read_feather(fpath)
 
         # set index
