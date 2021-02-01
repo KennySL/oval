@@ -94,6 +94,9 @@ class Stock(Asset):
         df = self.yfticker.history(period=period)
 
         # add new columns of data
+        # <TODO> when period is specified to be 1 day, an extra
+        # row is produced. Need to fix that so that no
+        # new rows are produced.
         df["log_return"] = np.log(df["Close"] / df["Close"].shift(1))
         df["return"] = df["Close"] / df["Close"].shift(1) - 1
 
@@ -301,6 +304,86 @@ class Cash(Asset):
     @property
     def ticker(self):
         return self._ticker
+
+    @property
+    def asset_class(self):
+        return self._asset_class
+
+
+class Fund(Asset):
+    def __init__(self):
+        """securities that cannot be splitted to its components are grouped
+        into this class.
+        """
+        self._price = 1.0
+        self._ticker = "Fund"
+        self._asset_class = "Fund"
+
+    @property
+    def price(self):
+        return self._price
+
+    @property
+    def ticker(self):
+        return self._ticker
+
+    @property
+    def asset_class(self):
+        return self._asset_class
+
+
+class Option(Asset):
+    def __init__(self, ticker, mat_date, opt_type, strike):
+        """
+        ticker : str
+            underlying asset
+
+        mat_date : str
+            follows yyyy-mm-dd
+
+        opt_type : str
+            either "call" or "put"
+
+        strike : float
+        """
+
+        self._ticker = f"Option_{ticker}"
+        self._asset_class = "Option"
+
+        self._underlying = Stock(ticker, history_period="5d", financials=False)
+        self._u_price = self.underlying.price
+
+        self._whole_data = self.underlying.get_option_data()
+        self._data = self._whole_data.loc[slice(None), mat_date, strike]
+
+        if opt_type == "call":
+            self._price = self._data["bid_c"][0]
+        else:
+            self._price = self._data["bid_p"][0]
+
+    @property
+    def u_price(self):
+        return self._u_price
+
+    @property
+    def price(self):
+        return self._price
+
+    @property
+    def whole_data(self):
+        return self._whole_data
+
+    @property
+    def data(self):
+        return self._data
+
+    @property
+    def ticker(self):
+        return self._ticker
+
+    @property
+    def underlying(self):
+        return self._underlying
 
     @property
     def asset_class(self):
