@@ -24,12 +24,21 @@ import pandas as pd
 import plotly.express as px
 from copy import deepcopy as _deepcopy
 from pyarrow import feather
+import logging
+import toml
+import numpy as np
 
 try:
     from asset import Stock, Cash
 except (ImportError, ModuleNotFoundError):
     from oval.asset import Stock, Cash
 
+CONF = toml.load(_Path(__file__).parent.joinpath("conf.toml"))
+
+LOGFORMAT = CONF["LOGGING"]["format"]
+logging.basicConfig(format=LOGFORMAT)
+logger = logging.getLogger(__name__)
+logger.setLevel("INFO")
 
 class Position:
     """Building blocks of the portfolio class."""
@@ -52,8 +61,16 @@ class Position:
     def shares(self):
         return self._shares
 
-    def update_shares(self, change_in_shares):
-        self._shares += change_in_shares
+    def update_shares(self, shares, increment=True):
+
+        if increment:
+            # here shares means increment to existing position
+            self._shares += shares
+        else:
+            # if increment is false, position get updated to
+            # amount of shares.
+            self._shares = shares
+
         self._value = self._calculate_value()
 
     @property
@@ -139,7 +156,7 @@ class Portfolio:
 
         return pos_dict
 
-    def update_position(self, ticker, change):
+    def update_position(self, ticker, change, increment=True):
         """update positions in the portfolio. In addition, reflect
         summary and value accordingly.
 
@@ -157,13 +174,41 @@ class Portfolio:
         accordingly.
         """
         # update positions
-        self.positions[ticker].update_shares(change)
+        self.positions[ticker].update_shares(change, increment)
 
         # update portfolio
+        self._update_portfolio()
+    
+    def _update_portfolio(self):
+        """Update portfolio
+        """
         self._time_idx = self.get_longest_time_index()
         self._val_date = self.time_idx[-1]
         self._summary = self._summarize()
-        self._value = self.summary["value"].sum()
+        self._value = self.summary["value"].sum()      
+
+    def new_position(self, position):
+        """Add new position
+        """
+
+        if position.asset.ticker in self.positions.keys():
+            raise ValueError("Ticker already exists.")
+        else:
+            self.positions[position.asset.ticker] = position
+        
+        # update portfolio
+        self._update_portfolio()
+    
+    def remove_position(self, ticker):
+        """remove existing position
+        """
+        if ticker in self.positions.keys():
+            self.positions.pop(ticker)
+        else:
+            raise KeyError("Invalid Ticker")
+
+        # update portfolio
+        self._update_portfolio()
 
     def _summarize(self):
         """Internal function that produce a summary of the portfolio."""
@@ -204,6 +249,7 @@ class Portfolio:
         df = self.summary.reset_index().set_index("ticker")
 
         if topic == "Weights":
+            logger.info(round(self.value, 2))
             fig = px.pie(df, values="weight", names=df.index, title="Weights")
             fig.show()
 
@@ -259,8 +305,10 @@ class Portfolio:
             df.set_index("Date", inplace=True)
         elif fpath.stem.find("Option") != -1:
             df.set_index(["val_date", "mat_date", "strike"], inplace=True)
+
         elif fpath.stem.find("Summary") != -1:
             df.set_index(["val_date", "ticker"], inplace=True)
+            df["val_date"] = df["val_date"].astype(np.datetime64)
 
         return df
 
@@ -344,6 +392,21 @@ class Portfolio:
 
                 except IndexError:
                     print(f"asset {pos.asset.ticker} has no option data")
+            
+            elif pos.asset.asset_class == "Option":
+                
+                fname = pos.asset.ticker
+                fpath = base_path.joinpath(fname)
+
+                try:
+                    option_data = pos.asset.whole_data
+
+                    # if exist, append
+                    if fpath.is_file():
+                        self._update_data(fpath, option_data, replace)
+                    else:
+                        option_data.reset_index().to_feather(fpath)
+
 
         # update summary
         fpath = base_path.joinpath("Summary")
