@@ -22,6 +22,7 @@ portfolio Listing
 from pathlib import Path as _Path
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from copy import deepcopy as _deepcopy
 from pyarrow import feather
 import logging
@@ -39,6 +40,7 @@ LOGFORMAT = CONF["LOGGING"]["format"]
 logging.basicConfig(format=LOGFORMAT)
 logger = logging.getLogger(__name__)
 logger.setLevel("INFO")
+
 
 class Position:
     """Building blocks of the portfolio class."""
@@ -178,30 +180,27 @@ class Portfolio:
 
         # update portfolio
         self._update_portfolio()
-    
+
     def _update_portfolio(self):
-        """Update portfolio
-        """
+        """Update portfolio"""
         self._time_idx = self.get_longest_time_index()
         self._val_date = self.time_idx[-1]
         self._summary = self._summarize()
-        self._value = self.summary["value"].sum()      
+        self._value = self.summary["value"].sum()
 
     def new_position(self, position):
-        """Add new position
-        """
+        """Add new position"""
 
         if position.asset.ticker in self.positions.keys():
             raise ValueError("Ticker already exists.")
         else:
             self.positions[position.asset.ticker] = position
-        
+
         # update portfolio
         self._update_portfolio()
-    
+
     def remove_position(self, ticker):
-        """remove existing position
-        """
+        """remove existing position"""
         if ticker in self.positions.keys():
             self.positions.pop(ticker)
         else:
@@ -307,8 +306,8 @@ class Portfolio:
             df.set_index(["val_date", "mat_date", "strike"], inplace=True)
 
         elif fpath.stem.find("Summary") != -1:
-            df.set_index(["val_date", "ticker"], inplace=True)
             df["val_date"] = df["val_date"].astype(np.datetime64)
+            df.set_index(["val_date", "ticker"], inplace=True)
 
         return df
 
@@ -391,10 +390,10 @@ class Portfolio:
                         option_data.reset_index().to_feather(fpath)
 
                 except IndexError:
-                    print(f"asset {pos.asset.ticker} has no option data")
-            
+                    logger.error(f"asset {pos.asset.ticker} has no option data")
+
             elif pos.asset.asset_class == "Option":
-                
+
                 fname = pos.asset.ticker
                 fpath = base_path.joinpath(fname)
 
@@ -406,7 +405,8 @@ class Portfolio:
                         self._update_data(fpath, option_data, replace)
                     else:
                         option_data.reset_index().to_feather(fpath)
-
+                except IndexError:
+                    logger.error(f"asset {pos.asset.ticker} has no option data")
 
         # update summary
         fpath = base_path.joinpath("Summary")
@@ -415,3 +415,219 @@ class Portfolio:
             self._update_data(fpath, self.summary, replace)
         else:
             self.summary.reset_index().to_feather(fpath)
+
+
+class Summary:
+    def __init__(self, path, benchmark=None):
+        self._data = Portfolio.read_data(path)
+        self._val_dates = list(self.data.index.levels[0])
+        self._action_log = self.get_action_log()
+        self._performance = self._summarize_by_val_date()
+        self._benchmark = self.get_benchmark(benchmark)
+
+        if self.benchmark is not None:
+            self._add_benchmark_to_performance()
+
+    @property
+    def data(self):
+        return self._data
+
+    @property
+    def action_log(self):
+        return self._action_log
+
+    @property
+    def benchmark(self):
+        return self._benchmark
+
+    @property
+    def performance(self):
+        return self._performance
+
+    @property
+    def val_dates(self):
+        return self._val_dates
+
+    def get_action_log(self):
+        # make a action log for new positions, removed positions, and existing positions.
+
+        data = self.data
+
+        # initialize action log
+        action_log = {}
+        action_log["val_date"] = []
+        action_log["ticker"] = []
+        action_log["asset_class"] = []
+        action_log["action"] = []
+        action_log["change"] = []
+        action_log["price"] = []
+        action_log["value"] = []
+
+        # get a list of valuation dates
+        val_dates = self.val_dates
+
+        for idx in range(len(val_dates)):
+            d1 = val_dates[idx]
+
+            try:
+                d2 = val_dates[idx + 1]
+            except IndexError:
+                break
+
+            data1 = data.loc[d1]
+            data2 = data.loc[d2]
+
+            tickers1 = set(data1.index)
+            tickers2 = set(data2.index)
+            new_tickers = tickers2 - tickers1
+            removed_tickers = tickers1 - tickers2
+            existing_tickers = tickers2.intersection(tickers1)
+
+            # for new tickers, record positions change
+            for ticker in new_tickers:
+                action_log["val_date"].append(d2)
+                action_log["ticker"].append(ticker)
+                action_log["asset_class"].append(data2.loc[ticker, "asset_class"])
+                action_log["action"].append("new")
+
+                change = data2.loc[ticker, "shares"]
+                action_log["change"].append(change)
+
+                price = data2.loc[ticker, "price"]
+                action_log["price"].append(price)
+
+                action_log["value"].append(price * change)
+
+            # for removed tickers, record positions change
+            for ticker in removed_tickers:
+                action_log["val_date"].append(d2)
+                action_log["ticker"].append(ticker)
+                action_log["asset_class"].append(data2.loc[ticker, "asset_class"])
+                action_log["action"].append("removed")
+                change = data2.loc[ticker, "shares"] * -1
+                action_log["change"].append(change)
+
+                price = data2.loc[ticker, "price"]
+                action_log["price"].append(price)
+
+                action_log["value"].append(price * change)
+
+            # for existing tickers, record positions change
+            for ticker in existing_tickers:
+
+                shares_1 = data1.loc[ticker, "shares"]
+                shares_2 = data2.loc[ticker, "shares"]
+                change = shares_2 - shares_1
+
+                if change != 0:
+                    action_log["val_date"].append(d2)
+                    action_log["ticker"].append(ticker)
+                    action_log["asset_class"].append(data2.loc[ticker, "asset_class"])
+                    action_log["action"].append("update")
+
+                    action_log["change"].append(change)
+                    price = data2.loc[ticker, "price"]
+                    action_log["price"].append(price)
+                    action_log["value"].append(price * change)
+
+        # store data in dataframe form
+        action_log = pd.DataFrame(action_log)
+        # action_log.set_index(action_log, inplace=True)
+        action_log.set_index(["val_date", "ticker"], inplace=True)
+
+        return action_log
+
+    def get_benchmark(self, benchmark=None):
+
+        if benchmark:
+            bm = Stock(benchmark).history["Close"]
+            bm.name = "benchmark"
+        else:
+            bm = None
+        return bm
+
+    def _summarize_by_val_date(self):
+
+        df = self.data.groupby(level=0).sum().copy()
+
+        df["change_in_value"] = df["value"] - df["value"].shift(1)
+        df["return"] = df["value"] / df["value"].shift(1) - 1
+
+        _action_log = self.action_log.groupby(level=0).sum()["value"]
+        _action_log.name = "change_in_capital"
+
+        df = df.merge(_action_log, how="left", left_index=True, right_index=True)
+
+        df["appreciation"] = df["change_in_value"] - df["change_in_capital"]
+
+        # calculate DWR and TWR
+        # DWR
+        df["1+return"] = 1 + df["return"]
+        df["cumu_return"] = df["1+return"].cumprod()
+        df.loc[self.val_dates[0], "cumu_return"] = 1
+        df["period"] = np.arange(len(df))
+        df["DWR"] = (df["cumu_return"] ** (1 / df["period"])) - 1
+        df["ann_DWR"] = (1 + df["DWR"]) ** 12 - 1
+
+        # TWR
+        df["precap_value"] = df["value"] - df["change_in_capital"]
+        df["precap_return"] = df["precap_value"] / df["value"].shift(1) - 1
+        df["1+precap_return"] = df["precap_return"] + 1
+        df["cumu_precap_return"] = df["1+precap_return"].cumprod()
+        df.loc[self.val_dates[0], "cumu_precap_return"] = 1
+        df["TWR"] = (df["cumu_precap_return"] ** (1 / df["period"])) - 1
+        df["ann_TWR"] = (1 + df["TWR"]) ** 12 - 1
+
+        return df
+
+    def _add_benchmark_to_performance(self):
+
+        self._performance = self._performance.merge(
+            self.benchmark, how="left", left_index=True, right_index=True
+        )
+        self._performance["change_in_benchmark"] = self._performance[
+            "benchmark"
+        ] - self._performance["benchmark"].shift(1)
+        self._performance["return_benchmark"] = (
+            self._performance["benchmark"] / self._performance["benchmark"].shift(1) - 1
+        )
+        self._performance["1+return_benchmark"] = (
+            1 + self._performance["return_benchmark"]
+        )
+        self._performance["cumu_return_benchmark"] = self._performance[
+            "1+return_benchmark"
+        ].cumprod()
+        self._performance.loc[self.val_dates[0], "cumu_return_benchmark"] = 1
+        self._performance["ann_return_benchmark"] = (
+            self._performance["1+return_benchmark"] ** 12 - 1
+        )
+
+    def plot_performance(self):
+
+        fig = go.Figure(
+            data=go.Scatter(
+                x=self.performance.index,
+                y=self.performance["cumu_return"],
+                mode="lines+markers",
+                name="cumu_return",
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=self.performance.index,
+                y=self.performance["cumu_precap_return"],
+                mode="lines+markers",
+                name="cumu_precap_return",
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=self.performance.index,
+                y=self.performance["cumu_return_benchmark"],
+                mode="lines+markers",
+                name="cumu_return_benchmark",
+            )
+        )
+        fig.show()
