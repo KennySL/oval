@@ -170,6 +170,7 @@ class Stock(Asset):
             straddle_view["val_date"] = val_date
             straddle_view["mat_date"] = mat_date
             straddle_view["days_to_mat"] = (mat_date - val_date).days
+            straddle_view["busdays_to_mat"] = np.busday_count(straddle_view["val_date"].dt.date, straddle_view["mat_date"].dt.date)
 
             straddle_view.set_index(["val_date", "mat_date", "strike"], inplace=True)
 
