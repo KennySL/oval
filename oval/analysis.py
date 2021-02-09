@@ -24,6 +24,7 @@ import numpy as np
 from pyarrow import feather
 from fredapi import Fred
 import plotly.graph_objects as go
+from scipy.stats import norm
 
 
 try:
@@ -80,13 +81,22 @@ class OptionAnalyzer:
 
 class YieldCurve:
     def __init__(self, start="2021-01-01"):
-        self._interest_rates = self.get_daily_interest_rates(start)
+        self._interest_rates, self._cc_interest_rates = self.get_daily_interest_rates(start)
         self._cur_rates = [self.interest_rates[i].iloc[-1] for i in self.interest_rates]
+        self._cc_cur_rates = [self.cc_interest_rates[i].iloc[-1] for i in self.cc_interest_rates]
         self._time_periods = [1, 3, 6, 12, 24]
     
     @property
     def cur_rates(self):
         return self._cur_rates
+
+    @property
+    def cc_cur_rates(self):
+        return self._cc_cur_rates
+    
+    @property
+    def cc_interest_rates(self):
+        return self._cc_interest_rates
 
     @property
     def interest_rates(self):
@@ -96,17 +106,26 @@ class YieldCurve:
     def time_periods(self):
         return self._time_periods
 
-    def interp(self, months):
+    def interp(self, months, cc=True):
         """Return interpolated rates based on the current rates and time periods.
         """
-        rates = np.interp(months, xp=self.time_periods, fp=self.cur_rates)
+
+        if cc:
+            rates = np.interp(months, xp=self.time_periods, fp=self.cc_cur_rates)    
+        else:
+            rates = np.interp(months, xp=self.time_periods, fp=self.cur_rates)
         return rates
 
-    def plot(self, interp=False):
+    def plot(self, interp=False, cc=True):
+
+        if cc:
+            rates = self.cc_cur_rates
+        else:
+            rates = self.cur_rates
 
         if interp:
             _months = np.arange(0, 36, 1)
-            _rates = np.interp(_months, xp=self.time_periods, fp=self.cur_rates)
+            _rates = np.interp(_months, xp=self.time_periods, fp=rates)
             fig = go.Figure(
                 data=go.Scatter(
                     x=_months,
@@ -119,7 +138,7 @@ class YieldCurve:
             fig = go.Figure(
                 data=go.Scatter(
                     x=self.time_periods,
-                    y=self.cur_rates,
+                    y=rates,
                     mode="lines+markers",
                     name="yield curve",
                 )
@@ -129,7 +148,7 @@ class YieldCurve:
 
     @staticmethod
     def get_daily_interest_rates(start="2021-01-01"):
-        """get annualized interest rates
+        """get nominal interest rates
         """
         fred = Fred()
         interest_rates = {}
@@ -139,7 +158,15 @@ class YieldCurve:
         interest_rates["1y"] = fred.get_series("DGS1", observation_start=start)
         interest_rates["2y"] = fred.get_series("DGS2", observation_start=start)
 
-        return interest_rates
+        # get daily interest rates in annualized, continuously compounding form
+        cc_interest_rates = {}
+        cc_interest_rates["1m"] = np.log((interest_rates["1m"]/12+1)**12)
+        cc_interest_rates["3m"] = np.log((interest_rates["3m"]/4+1)**4)
+        cc_interest_rates["6m"] = np.log((interest_rates["6m"]/2+1)**2)
+        cc_interest_rates["1y"] = np.log((interest_rates["1y"]+1))
+        cc_interest_rates["2y"] = np.log((interest_rates["2y"]/0.5+1)**0.5)
+
+        return interest_rates, cc_interest_rates
 
 
 
