@@ -605,10 +605,19 @@ class Summary:
 
     def plot_performance(self):
 
-        logger.info("Annualized Dollar Weighted Rate:" + str(self.performance.loc[self.val_dates[-1], "ann_DWR"]))
-        logger.info("Annualized Time Weighted Rate:" + str(self.performance.loc[self.val_dates[-1], "ann_TWR"]))
-        logger.info("Annualized Benchmark Weighted Rate:" + str(self.performance.loc[self.val_dates[-1], "ann_return_benchmark"]))
-        
+        logger.info(
+            "Annualized Dollar Weighted Rate:"
+            + str(self.performance.loc[self.val_dates[-1], "ann_DWR"])
+        )
+        logger.info(
+            "Annualized Time Weighted Rate:"
+            + str(self.performance.loc[self.val_dates[-1], "ann_TWR"])
+        )
+        logger.info(
+            "Annualized Benchmark Weighted Rate:"
+            + str(self.performance.loc[self.val_dates[-1], "ann_return_benchmark"])
+        )
+
         fig = go.Figure(
             data=go.Scatter(
                 x=self.performance.index,
