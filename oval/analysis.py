@@ -25,6 +25,7 @@ from pyarrow import feather
 from fredapi import Fred
 import plotly.graph_objects as go
 from scipy.stats import norm
+import pandas as pd
 
 
 try:
@@ -128,18 +129,39 @@ class YieldCurve:
 
 
 class OptionAnalyzer:
-    def __init__(self, ticker, history_file, yield_curve=YieldCurve()):
+    def __init__(
+        self,
+        ticker,
+        history_file,
+        get_updated_option_data=True,
+        yield_curve=YieldCurve(),
+        model="BS",
+        sample_iv_size=5,
+        sample_points=1000,
+    ):
 
         self._underlying = Stock(ticker, history_period="max", financials=False)
         self._u_price = self.underlying.price
-        self._history = self.combine_data(
-            history_file, self.underlying.get_option_data()
-        )
+
+        if get_updated_option_data:
+            new_data = self.underlying.get_option_data()
+            self._history = self.combine_data(history_file, new_data)
+        else:
+            self._history = self.combine_data(history_file)
+
         self._yield_curve = yield_curve
+
+        self._analysis = self.calculate_iv_and_greeks(
+            model, sample_iv_size, sample_points
+        )
 
     @property
     def underlying(self):
         return self._underlying
+
+    @property
+    def analysis(self):
+        return self._analysis
 
     @property
     def u_price(self):
@@ -153,20 +175,34 @@ class OptionAnalyzer:
     def yield_curve(self):
         return self._yield_curve
 
+    def write(self, fpath, replace=False):
+        if fpath.is_file():
+            if replace:
+                self.history.reset_index().to_feather(fpath)
+            else:
+                raise FileExistsError("File exists.")
+
+        else:
+            self.history.reset_index().to_feather(fpath)
+
     @staticmethod
-    def combine_data(history_file, new_data):
+    def combine_data(history_file, new_data=None):
         """
         Parameters
         ==========
         history : feather file
 
         new_data : dataframe
+            if None, the function simply read the history file,
+            set busdays_to_mat, and set indexes.
         """
         history = feather.read_feather(history_file)
 
-        updated = history.append(new_data.reset_index())
-        updated.reset_index(drop=True, inplace=True)
-
+        if new_data is None:
+            updated = history
+        else:
+            updated = history.append(new_data.reset_index())
+            updated.reset_index(drop=True, inplace=True)
         # calculate Bdays for history file, some history files
         # dont have this field.
 
@@ -284,7 +320,14 @@ class OptionAnalyzer:
         results["zero_vol_p"] = put_results[10].squeeze()
         results["max_vol_p"] = put_results[11].squeeze()
 
-        return pd.DataFrame(results)
+        self._analysis = pd.concat(
+            [self.history.reset_index(), pd.DataFrame(results)], axis=1
+        )
+        self._analysis.set_index(["val_date", "mat_date", "strike"], inplace=True)
+
+        self.calculate_leverage()
+
+        return self._analysis
 
     def _calculate_iv_and_greeks_c_bs(
         self, sample_iv_size, sample_points, hv, S, q, T_t, K, r
@@ -464,3 +507,23 @@ class OptionAnalyzer:
     def _inverseNorm(y):
         """ normal pdf """
         return 1 / np.sqrt(2 * np.pi) * np.exp(-(y ** 2) / 2)
+
+    def calculate_leverage(self):
+        """calculate leverage and other relevant calculations using
+        the greeks and iv from analysis attribute.
+        """
+        self._analysis["leverage_c"] = (
+            self._analysis["S"]
+            * (self._analysis["delta_c"] + 0.5 * self._analysis["gamma_c"])
+            / self._analysis["c"]
+        )
+        self._analysis["breakeven_c"] = self._analysis["S"] + self._analysis["c"]
+        self._analysis["instrinc_c"] = self._analysis["S"] - self._analysis["K"]
+
+        self._analysis["leverage_p"] = (
+            self._analysis["S"]
+            * (self._analysis["delta_p"] + 0.5 * self._analysis["gamma_p"])
+            / self._analysis["p"]
+        )
+        self._analysis["breakeven_p"] = self._analysis["S"] - self._analysis["p"]
+        self._analysis["instrinc_p"] = self._analysis["K"] - self._analysis["S"]
