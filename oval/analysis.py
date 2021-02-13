@@ -134,7 +134,6 @@ class OptionAnalyzer:
         ticker,
         history_file,
         get_updated_option_data=True,
-        yield_curve=YieldCurve(),
         model="BS",
         sample_iv_size=5,
         sample_points=1000,
@@ -149,7 +148,7 @@ class OptionAnalyzer:
         else:
             self._history = self.combine_data(history_file)
 
-        self._yield_curve = yield_curve
+        self._yield_curve = YieldCurve()
 
         self._analysis = self.calculate_iv_and_greeks(
             model, sample_iv_size, sample_points
@@ -233,6 +232,10 @@ class OptionAnalyzer:
         <TODO> dividend yield is set to 0. but it should
         take the expected annualized dividend yield.
 
+        <TODO> refine the loop condition,
+        to insure various iv values. few iv values indicates
+        the number of sample points are not enough.
+
         Returns
         =======
         results : Dataframe
@@ -250,6 +253,10 @@ class OptionAnalyzer:
         # 2. turn series to array for linear algebra computations.
         # S, K, r, q, T_t,
         T_t = self._convert_to_array(self.history["busdays_to_mat"] / 252, -1, 1)
+        # floor T_t at very small number to avoid divide by 0 error
+        # 0.5/252 is assuming the calculation is done at mid day of the expiry date.
+        T_t = np.where(T_t <= 0, 0.5 / 252, T_t)
+
         r = self.yield_curve.interp(T_t)
         q = np.zeros(T_t.shape)
         K = self._convert_to_array(self.history.reset_index()["strike"], -1, 1)
@@ -261,28 +268,36 @@ class OptionAnalyzer:
         # calculate call price and its greeks
         loop = True
         loop_sample_iv_size = sample_iv_size
+        loop_sample_points = sample_points
         while loop:
             try:
                 call_results = self._calculate_iv_and_greeks_c_bs(
-                    loop_sample_iv_size, sample_points, hv, S, q, T_t, K, r
+                    loop_sample_iv_size, loop_sample_points, hv, S, q, T_t, K, r
                 )
             except ValueError:
                 loop_sample_iv_size *= 2
-                print(f"try call sample iv size {loop_sample_iv_size}")
+                loop_sample_points *= 2
+                print(
+                    f"try call sample iv size {loop_sample_iv_size} and {loop_sample_points}"
+                )
             else:
                 loop = False
 
         # calculate put price and its greeks
         loop = True
         loop_sample_iv_size = sample_iv_size
+        loop_sample_points = sample_points
         while loop:
             try:
                 put_results = self._calculate_iv_and_greeks_p_bs(
-                    loop_sample_iv_size, sample_points, hv, S, q, T_t, K, r
+                    loop_sample_iv_size, loop_sample_points, hv, S, q, T_t, K, r
                 )
             except ValueError:
                 loop_sample_iv_size *= 2
-                print(f"try put sample iv size {loop_sample_iv_size}")
+                loop_sample_points *= 2
+                print(
+                    f"try put sample iv size {loop_sample_iv_size} and {loop_sample_points}"
+                )
             else:
                 loop = False
 
@@ -306,6 +321,8 @@ class OptionAnalyzer:
         results["idx_c"] = call_results[9].squeeze()
         results["zero_vol_c"] = call_results[10].squeeze()
         results["max_vol_c"] = call_results[11].squeeze()
+        results["intrinsic_c"] = call_results[12].squeeze()
+        results["observed_c"] = call_results[13].squeeze()
 
         results["d1_p"] = put_results[0].squeeze()
         results["d2_p"] = put_results[1].squeeze()
@@ -319,6 +336,8 @@ class OptionAnalyzer:
         results["idx_p"] = put_results[9].squeeze()
         results["zero_vol_p"] = put_results[10].squeeze()
         results["max_vol_p"] = put_results[11].squeeze()
+        results["intrinsic_p"] = put_results[12].squeeze()
+        results["observed_p"] = put_results[13].squeeze()
 
         self._analysis = pd.concat(
             [self.history.reset_index(), pd.DataFrame(results)], axis=1
@@ -358,6 +377,10 @@ class OptionAnalyzer:
         # observed call price is set as bid price if bid price is not 0,
         # if bid price is 0, use last traded price.
         observed_c = np.where(bid_c == 0, lastPrice_c, bid_c)
+
+        # floor c at intrinsic value
+        intrinsic_c = np.where(S - K < 0, 0, S - K)
+        observed_c = np.where(observed_c < intrinsic_c, intrinsic_c, observed_c)
         diff_c = np.abs(observed_c - c)
         idx_c = diff_c.argmin(axis=1).reshape(-1, 1)
 
@@ -414,6 +437,8 @@ class OptionAnalyzer:
             idx_c,
             zero_vol_c,
             max_vol_c,
+            intrinsic_c,
+            observed_c,
         )
 
     def _calculate_iv_and_greeks_p_bs(
@@ -445,6 +470,11 @@ class OptionAnalyzer:
         # observed put price is set as bid price if bid price is not 0,
         # if bid price is 0, use last traded price.
         observed_p = np.where(bid_p == 0, lastPrice_p, bid_p)
+
+        # floor at intrinsic value
+        intrinsic_p = np.where(K - S < 0, 0, K - S)
+        observed_p = np.where(observed_p < intrinsic_p, intrinsic_p, observed_p)
+
         diff_p = np.abs(observed_p - p)
         idx_p = diff_p.argmin(axis=1).reshape(-1, 1)
 
@@ -501,6 +531,8 @@ class OptionAnalyzer:
             idx_p,
             zero_vol_p,
             max_vol_p,
+            intrinsic_p,
+            observed_p,
         )
 
     @staticmethod
@@ -517,13 +549,11 @@ class OptionAnalyzer:
             * (self._analysis["delta_c"] + 0.5 * self._analysis["gamma_c"])
             / self._analysis["c"]
         )
-        self._analysis["breakeven_c"] = self._analysis["S"] + self._analysis["c"]
-        self._analysis["instrinc_c"] = self._analysis["S"] - self._analysis["K"]
+        self._analysis["breakeven_c"] = self._analysis["K"] + self._analysis["c"]
 
         self._analysis["leverage_p"] = (
             self._analysis["S"]
             * (self._analysis["delta_p"] + 0.5 * self._analysis["gamma_p"])
             / self._analysis["p"]
         )
-        self._analysis["breakeven_p"] = self._analysis["S"] - self._analysis["p"]
-        self._analysis["instrinc_p"] = self._analysis["K"] - self._analysis["S"]
+        self._analysis["breakeven_p"] = self._analysis["K"] - self._analysis["p"]
