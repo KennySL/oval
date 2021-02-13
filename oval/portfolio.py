@@ -503,12 +503,13 @@ class Summary:
             for ticker in removed_tickers:
                 action_log["val_date"].append(d2)
                 action_log["ticker"].append(ticker)
-                action_log["asset_class"].append(data2.loc[ticker, "asset_class"])
+                action_log["asset_class"].append(data1.loc[ticker, "asset_class"])
                 action_log["action"].append("removed")
-                change = data2.loc[ticker, "shares"] * -1
+                change = data1.loc[ticker, "shares"] * -1
                 action_log["change"].append(change)
 
-                price = data2.loc[ticker, "price"]
+                # get updated price of removed ticker
+                price = Stock(ticker, history_period="60d").history["Close"][d2]
                 action_log["price"].append(price)
 
                 action_log["value"].append(price * change)
