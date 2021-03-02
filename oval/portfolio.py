@@ -365,6 +365,9 @@ class Portfolio:
         """
         # update stock and option data
         for pos in self.positions.values():
+
+            logger.info(f"writing {pos.asset.asset_class}_{pos.asset.ticker}")
+
             if pos.asset.asset_class == "Stock":
 
                 # update stock data
@@ -509,7 +512,11 @@ class Summary:
                 action_log["change"].append(change)
 
                 # get updated price of removed ticker
-                price = Stock(ticker, history_period="60d").history["Close"][d2]
+                try:
+                    price = Stock(ticker, history_period="60d").history["Close"][d2]
+                except AttributeError:
+                    logger.error(f"can't update {ticker}, writing off position.")
+                    price = 0
                 action_log["price"].append(price)
 
                 action_log["value"].append(price * change)
@@ -559,6 +566,9 @@ class Summary:
         _action_log.name = "change_in_capital"
 
         df = df.merge(_action_log, how="left", left_index=True, right_index=True)
+
+        # fill NA values in change in capital column
+        df["change_in_capital"].fillna(0, inplace=True)
 
         df["appreciation"] = df["change_in_value"] - df["change_in_capital"]
 
