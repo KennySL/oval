@@ -31,9 +31,9 @@ import toml
 import numpy as np
 
 try:
-    from asset import Stock, Cash
+    from asset import Stock, Cash, Fund
 except (ImportError, ModuleNotFoundError):
-    from oval.asset import Stock, Cash
+    from oval.asset import Stock, Cash, Fund
 
 CONF = toml.load(_Path(__file__).parent.joinpath("conf.toml"))
 
@@ -154,6 +154,8 @@ class Portfolio:
                     pos = Position(Stock(i[0], financials=True), i[2])
                 elif i[1] == "Cash":
                     pos = Position(Cash(), i[2])
+                elif i[1] == "Fund":
+                    pos = Position(Fund(), i[2])
 
                 pos_dict[i[0]] = pos
 
@@ -268,8 +270,8 @@ class Portfolio:
 
         for _key, _pos in self.positions.items():
             try:
-                keys.append(_key)
                 start_dates.append(_pos.asset.start_date)
+                keys.append(_key)
             except AttributeError:
                 # for assets with no start date, pass
                 pass
